@@ -1,56 +1,81 @@
-# Welcome to your Expo app 👋
+# Suki — wet market price memory
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Android-first, offline-only shopping companion for the palengke. Plan a list, see what you paid last time, check the lowest price you have ever logged, verify vendor math with a scale calculator, and watch a session budget drain as you swipe items bought.
 
-## Get started
+Everything lives in SQLite on the phone. No account, no cloud, no network calls.
 
-1. Install dependencies
+## Features
 
-   ```bash
-   npm install
-   ```
+- **Sessions** — one per market trip, each with its own budget, name and date. Start a new one, duplicate a past one (with options), or edit any of them later.
+- **List + Board** — checklist view and a two-column board. Swipe right to buy, swipe left to skip, tap to enter the exact amount.
+- **Budget bar** — green under budget, amber near the limit, red with the exact overage. Every purchase deducts immediately.
+- **Price history** — last price, lowest recorded price, and per-item history. Comparisons are per base unit (₱/kg, ₱/L, ₱/pc), never raw totals.
+- **Optional units** — items can be created with no unit at all. Comparisons then fall back to “reference only” rather than pretending to be accurate. Units can be added later; old unit-less entries stay unit-less.
+- **Scale calculator** — ₱100/kg + spend ₱50 → ½ kg / 500 g. Or 750 g → ₱75. Includes fraction labels, a gauge, and “apply to a list item”.
+- **My Items catalog** — searchable, sortable by usage, with last/lowest price and purchase counts. Re-add items from past trips in bulk.
+- **Backup** — manual export/import of a JSON file, plus a rolling weekly backup inside app storage.
 
-2. Start the app
+## Stack
 
-   ```bash
-   npx expo start
-   ```
+| Concern | Choice |
+| --- | --- |
+| App | Expo SDK 58, React Native 0.88, TypeScript |
+| Navigation | Expo Router (tabs + stack) |
+| Storage | `expo-sqlite` with Drizzle ORM schema definitions and versioned SQL migrations |
+| Money | integer centavos, no floats |
+| Weight | integer grams / millilitres / pieces |
+| Tests | Jest (`src/lib/pricing.test.ts`) |
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Local development
 
 ```bash
-npm run reset-project
+npm install
+npx expo start          # dev server
+npx expo run:android    # build + install a debug build on a device
 ```
 
-This command will move the starter code to the **example** directory and create a blank **src/app** directory where you can start developing.
+Typecheck and tests:
 
-### Other setup steps
+```bash
+npx tsc --noEmit
+npx jest
+```
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+## Building the release APK
 
-## Learn more
+The generated `android/` directory is checked in for this working copy. Requirements:
 
-To learn more about developing your project with Expo, look at the following resources:
+- JDK 17
+- Android SDK with `platforms;android-37.0`, `build-tools;37.0.0`, `ndk;27.1.12297006`, `cmake;3.22.1`
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```bash
+export JAVA_HOME=/path/to/jdk-17
+export ANDROID_HOME=/path/to/android-sdk
+cd android
+./gradlew :app:assembleRelease
+```
 
-## Join the community
+Output: `android/app/build/outputs/apk/release/app-release.apk`.
 
-Join our community of developers creating universal apps.
+The release build currently signs with the debug keystore and targets `arm64-v8a` only (all mainstream Android phones since ~2018). For Play Store distribution, configure a real signing key and add the other ABIs or ship an AAB.
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Data model
+
+`item`, `item_unit`, `session`, `session_item`, `price_entry` — see `src/db/schema.ts` for the model and `src/db/index.ts` for migrations.
+
+Key invariants:
+
+1. `price_entry.total_centavos` is mandatory; unit-backed fields are optional.
+2. Per-base price is derived at read time, never stored as truth.
+3. Items referenced by price history are archived, not deleted.
+4. A purchase is written in a single SQLite transaction together with the session item state and session timestamp.
+
+## Layout
+
+```
+src/app/            routes (tabs, session detail, item detail)
+src/components/     UI primitives, swipe row, budget bar, sheets
+src/db/             schema, client + migrations, repository
+src/lib/            pricing math, formatting, ids, backup
+src/state/          data version context and query hook
+```
