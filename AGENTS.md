@@ -1,41 +1,52 @@
-This is an Expo/React Native mobile application. Prioritize mobile-first patterns, performance, and cross-platform compatibility.
+# AGENTS.md — Suki (wet-market shopping app)
 
-## Expo has changed — do not trust your training data
-
-Expo ships breaking changes every SDK release. APIs you remember are likely renamed, moved, or removed. Before writing any code that touches an Expo, EAS, or React Native API:
-
-1. Read the major version of the `expo` package in `package.json`.
-2. Fetch the matching versioned docs: `https://docs.expo.dev/versions/v<major>.0.0/`
-3. For anything else, fetch https://docs.expo.dev/llms.txt — an index of all Expo docs with corrections to common LLM misconceptions. Follow its links to the specific page you need; never answer from memory.
-
-## Commands
-
-Use `bunx` instead of `npx` if the project uses bun (`bun.lock` present).
-
-```bash
-npx expo install <package>  # ALWAYS use instead of npm/yarn/pnpm/bun add — resolves SDK-compatible versions
-npx expo start              # start the dev server
-npx expo lint               # lint
-npx tsc --noEmit            # typecheck
-npx expo-doctor             # diagnose dependency and config issues
-npx expo install --fix      # fix incompatible package versions
-```
-
-Run lint and typecheck before declaring any task done.
-
-## Navigation & Routing
-
-- Use **Expo Router** for all navigation. Routes live in `src/app/` — every file there is a screen, `_layout.tsx` files define navigators. Keep non-route code (components, hooks, utils) outside `src/app/`.
-- Import `Link`, `router`, and `useLocalSearchParams` from `expo-router`.
-- Docs: https://docs.expo.dev/router/introduction.md
-
-## Building with EAS
-
-Use EAS to build, sign, and submit the app in the cloud (`eas build`, `eas submit`) and to ship over-the-air updates (`eas update`) — no local Xcode or Android Studio required. Run EAS CLI as `bunx eas-cli <command>` in Bun projects, or `npx eas-cli@latest <command>` otherwise; substitute that for bare `eas` in docs examples.
-Docs: https://docs.expo.dev/eas/index.md
+Expo SDK 58 / React Native 0.88, Expo Router. Runs in Expo Go on a physical phone.
 
 ## Rules
 
-- If `ios/` and `android/` directories do not exist, they are generated (Continuous Native Generation). Never create or edit them by hand — configure native behavior in `app.json` and config plugins.
-- Expo Go only includes its bundled native modules. After adding a library with native code, the app needs a development build: `npx expo run:ios|android` locally, or `eas build --profile development`.
-- Prefer recommended Expo modules over third-party libraries, and check your available skills before adding dependencies. Docs: https://docs.expo.dev/versions/latest/index.md
+- Install packages with `npx expo install` (never `npm/yarn add`).
+- Expo Go on a physical phone only: no custom native modules, no native builds, no `expo run:*`, no Android SDK/emulator — ask before adding any dependency with native code.
+- Never start or stop the dev server; it is already running.
+- Errors are logged to `expo.log`; check it only when the user reports a problem.
+- After edits, run `npx tsc --noEmit`.
+- Keep changes small. If unsure about an Expo/RN API, check the docs for the installed SDK: https://docs.expo.dev/versions/v58.0.0/
+
+## Layout
+
+- Routes: `src/app/` — every file is a screen; `_layout.tsx` files define navigators.
+- Non-route code lives outside `src/app/` (e.g. `src/components/`, `src/lib/`).
+- Data layer: `src/db/` (Drizzle ORM + `expo-sqlite`).
+- Import `Link`, `router`, and `useLocalSearchParams` from `expo-router`.
+
+## Change Rules
+
+Before any edit, classify the task:
+- MINOR: isolated, small diff, no shared logic.
+- MAJOR: touches core/shared logic, data, auth, payments, migrations, or spans many files/long effort.
+
+Triage (always first, no edits):
+1. Class: MINOR/MAJOR + one-line reason
+2. Files/areas affected
+3. Escalation risk
+4. Plan
+Then STOP and wait for my approval.
+
+Rules:
+- MAJOR, or MINOR that escalates mid-work: stop editing, report findings and plan, wait for approval.
+- MAJOR work: ask me to create a dedicated branch first. Never work on main/develop/release branches.
+- Never mix MAJOR and MINOR changes in one branch or commit. List unrelated minor fixes for me instead of including them.
+- Re-check severity whenever scope grows.
+
+- Plan files: after I approve a plan, write it as an .md file to ~/wet-market-app/docs/plans/<YYYY-MM-DD>-<issue>.md, using docs/plans/_TEMPLATE.md. Never save plan files to ~/.opencode/plan or any path outside this project. If you're about to write a plan elsewhere, use docs/plans/ instead. After saving, tell me the file path.
+
+## Escalation Protocol
+
+When a MINOR task escalates to MAJOR:
+1. Create `docs/plans/<date>-<issue>.md` from `docs/plans/_TEMPLATE.md` (e.g. `2026-11-22-price-entry-voided-at.md`).
+2. Keep the plan file permanently in `docs/plans/` — never move it to another folder.
+3. Immediately update the plan's fields:
+   - **Status**: set to the current work state (planned | in-progress | paused | done)
+   - **Updated**: set to today's date (YYYY-MM-DD)
+   - **Progress**: record what was completed / what remains
+   - **"Resume here"**: write the very next step to take when returning to work
+4. Resume triage from the top of AGENTS.md Change Rules before any further edits.

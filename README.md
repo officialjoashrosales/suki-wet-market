@@ -10,8 +10,8 @@ Everything lives in SQLite on the phone. No account, no cloud, no network calls.
 - **List + Board** — checklist view and a two-column board. Swipe right to buy, swipe left to skip, tap to enter the exact amount.
 - **Budget bar** — green under budget, amber near the limit, red with the exact overage. Every purchase deducts immediately.
 - **Price history** — last price, lowest recorded price, and per-item history. Comparisons are per base unit (₱/kg, ₱/L, ₱/pc), never raw totals.
-- **Optional units** — items can be created with no unit at all. Comparisons then fall back to “reference only” rather than pretending to be accurate. Units can be added later; old unit-less entries stay unit-less.
-- **Scale calculator** — ₱100/kg + spend ₱50 → ½ kg / 500 g. Or 750 g → ₱75. Includes fraction labels, a gauge, and “apply to a list item”.
+- **Optional units** — items can be created with no unit at all. Comparisons then fall back to "reference only" rather than pretending to be accurate. Units can be added later; old unit-less entries stay unit-less.
+- **Scale calculator** — ₱100/kg + spend ₱50 → ½ kg / 500 g. Or 750 g → ₱75. Includes fraction labels, a gauge, and "apply to a list item".
 - **My Items catalog** — searchable, sortable by usage, with last/lowest price and purchase counts. Re-add items from past trips in bulk.
 - **Backup** — manual export/import of a JSON file, plus a rolling weekly backup inside app storage.
 
@@ -41,6 +41,10 @@ npx tsc --noEmit
 npx jest
 ```
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for project history and version changes.
+
 ## Building the release APK
 
 The generated `android/` directory is checked in for this working copy. Requirements:
@@ -57,7 +61,7 @@ cd android
 
 Output: `android/app/build/outputs/apk/release/app-release.apk`.
 
-The release build currently signs with the debug keystore and targets `arm64-v8a` only (all mainstream Android phones since ~2018). For Play Store distribution, configure a real signing key and add the other ABIs or ship an AAB.
+**⚠️ Debug keystore warning:** The release build currently signs with the debug keystore and targets `arm64-v8a` only (all mainstream Android phones since ~2018). For Play Store distribution, configure a real signing key and add the other ABIs or ship an AAB. **Changing the signing key after the app is installed forces an uninstall and wipes all local data — create and back up a real keystore before distributing.**
 
 ## Data model
 
@@ -68,7 +72,9 @@ Key invariants:
 1. `price_entry.total_centavos` is mandatory; unit-backed fields are optional.
 2. Per-base price is derived at read time, never stored as truth.
 3. Items referenced by price history are archived, not deleted.
-4. A purchase is written in a single SQLite transaction together with the session item state and session timestamp.
+4. A purchase is written in a single SQLite transaction together with the session item state and session timestamps.
+5. `session_item.voided_at` is set on removal; "Undo" clears it. Price entries use `voided_at` for soft-delete, not physical deletion.
+6. Only `price_entry` rows with `kind = 'purchased'` AND `voided_at IS NULL` count for last/lowest price and budget calculations.
 
 ## Layout
 

@@ -81,6 +81,10 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
       `CREATE INDEX IF NOT EXISTS idx_price_session ON price_entry(session_id)`,
     ],
   },
+  {
+    version: 2,
+    statements: [`ALTER TABLE session_item ADD COLUMN note TEXT`],
+  },
 ];
 
 let migrated = false;

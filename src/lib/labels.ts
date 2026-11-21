@@ -9,7 +9,7 @@ export interface PriceLike {
   unitLabel?: string | null;
 }
 
-/** "₱100/kg" when the unit price is known, otherwise "₱120". */
+/** "₱100.00/kg" when the unit price is known, otherwise "₱120.00". */
 export function unitPriceLabel(entry: PriceLike | null, baseUnit: DisplayBase | null): string | null {
   if (!entry) return null;
   if (entry.unitPriceCentavos === null || entry.qtyInBase === null || entry.qtyInBase <= 0) {

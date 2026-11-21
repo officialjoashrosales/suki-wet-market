@@ -17,13 +17,13 @@ export default function ItemsScreen() {
   const { message, show } = useToast();
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SortMode>('used');
-  const [showArchived, setShowArchived] = useState(false);
+  const [archivedOnly, setArchivedOnly] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
 
   const { data, loading } = useAsyncData(() => listItems(undefined, true));
 
   const items = useMemo(() => {
-    const list = (data ?? []).filter((i) => showArchived || !i.archivedAt);
+    const list = (data ?? []).filter((i) => (archivedOnly ? !!i.archivedAt : !i.archivedAt));
     const filtered = search.trim()
       ? list.filter((i) => i.name.toLowerCase().includes(search.trim().toLowerCase()))
       : list;
@@ -32,13 +32,13 @@ export default function ItemsScreen() {
       if (sort === 'recent') return (b.lastPurchasedAt ?? '').localeCompare(a.lastPurchasedAt ?? '');
       return b.purchaseCount - a.purchaseCount || a.name.localeCompare(b.name);
     });
-  }, [data, search, sort, showArchived]);
+  }, [data, search, sort, archivedOnly]);
 
   return (
     <Screen>
       <PageHeader
         title="My Items"
-        subtitle={`${items.length} item${items.length === 1 ? '' : 's'} in your catalog`}
+        subtitle={`${items.length} ${archivedOnly ? 'archived ' : ''}item${items.length === 1 ? '' : 's'} in your ${archivedOnly ? 'archive' : 'catalog'}`}
         right={<Button label="+ New" compact onPress={() => setNewOpen(true)} />}
       />
 
@@ -48,7 +48,7 @@ export default function ItemsScreen() {
           <Chip label="Most used" active={sort === 'used'} onPress={() => setSort('used')} />
           <Chip label="Recent" active={sort === 'recent'} onPress={() => setSort('recent')} />
           <Chip label="A–Z" active={sort === 'name'} onPress={() => setSort('name')} />
-          <Chip label="Archived" active={showArchived} onPress={() => setShowArchived((v) => !v)} />
+          <Chip label="Archived" active={archivedOnly} onPress={() => setArchivedOnly((v) => !v)} />
         </View>
       </View>
 
@@ -59,17 +59,22 @@ export default function ItemsScreen() {
           {items.length === 0 ? (
             <EmptyState
               emoji="🏷️"
-              title={search ? 'No matches' : 'No items yet'}
+              title={search ? 'No matches' : archivedOnly ? 'No archived items' : 'No items yet'}
               body={
                 search
                   ? 'Try another name, or create this item.'
-                  : 'Items are reusable across sessions. Add the things you regularly buy at the market.'
+                  : archivedOnly
+                    ? 'Items you archive from an item’s detail screen will show up here.'
+                    : 'Items are reusable across sessions. Add the things you regularly buy at the market.'
               }
               action={
-                <Button
-                  label={search ? `Create “${search.trim()}”` : 'Create first item'}
-                  onPress={() => setNewOpen(true)}
-                />
+                search ? (
+                  <Button label={`Create “${search.trim()}”`} onPress={() => setNewOpen(true)} />
+                ) : archivedOnly ? (
+                  <Button label="Show active items" onPress={() => setArchivedOnly(false)} />
+                ) : (
+                  <Button label="Create first item" onPress={() => setNewOpen(true)} />
+                )
               }
             />
           ) : (

@@ -147,7 +147,11 @@ export function Field({
       <TextInput
         placeholderTextColor={colors.faint}
         {...props}
-        style={[styles.input, props.style]}
+        style={[
+          styles.input,
+          props.multiline && { minHeight: 120, textAlignVertical: 'top' },
+          props.style,
+        ]}
       />
       {hint ? <Text style={[text.small, { fontSize: 12 }]}>{hint}</Text> : null}
     </View>

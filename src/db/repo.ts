@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, isNull, like } from 'drizzle-orm';
 
+import { mergeParsedLines, type ParsedChecklistLine } from '../lib/checklist-parse';
 import { comparePrice, pricePerBase, type Comparison, type PricePoint } from '../lib/pricing';
 import { nowIso, todayIso, uuidv7 } from '../lib/id';
 import { db, sqlite } from './index';
@@ -69,6 +70,7 @@ export interface SessionItemView {
   plannedUnitId: string | null;
   plannedUnitLabel: string | null;
   plannedUnitQty: number | null;
+  note: string | null;
   dimension: Dimension;
   baseUnit: BaseUnit | null;
   displayUnit: string | null;
@@ -277,19 +279,28 @@ export async function addItemUnit(
   if (existing.length === 0 && input.qtyInBase !== null) {
     const record = await getItem(itemId);
     if (record && record.baseUnit === null) {
-      const baseUnit: BaseUnit = input.label.toLowerCase().includes('kg') ? 'g' : 'pc';
+      const kind = unitKindFromLabel(input.label);
+      const spec = UNITS_BY_KIND[kind === 'none' ? 'count' : kind];
       await db
         .update(item)
         .set({
-          dimension: baseUnit === 'g' ? 'weight' : 'count',
-          baseUnit,
-          displayUnit: baseUnit === 'g' ? 'kg' : 'pc',
+          dimension: spec.dimension,
+          baseUnit: spec.baseUnit,
+          displayUnit: spec.displayUnit,
           updatedAt: now,
         })
         .where(eq(item.id, itemId));
     }
   }
   return id;
+}
+
+function unitKindFromLabel(label: string): UnitKind {
+  const l = label.trim().toLowerCase();
+  if (l === 'kg' || l === 'g' || l.includes('kilo') || l === 'kl') return 'weight';
+  if (l === 'l' || l === 'ml' || l.includes('liter')) return 'volume';
+  if (l === 'pc' || l.includes('piece') || l === 'pcs') return 'count';
+  return 'none';
 }
 
 export async function deleteItemUnit(unitId: string): Promise<void> {
@@ -456,11 +467,13 @@ export async function duplicateSession(
     item_id: string;
     planned_qty: number | null;
     planned_unit_id: string | null;
+    note: string | null;
     state: string;
     sort_order: number;
-  }>('SELECT item_id, planned_qty, planned_unit_id, state, sort_order FROM session_item WHERE session_id = ? ORDER BY sort_order', [
-    sourceId,
-  ]);
+  }>(
+    'SELECT item_id, planned_qty, planned_unit_id, note, state, sort_order FROM session_item WHERE session_id = ? ORDER BY sort_order',
+    [sourceId],
+  );
 
   await sqlite.withTransactionAsync(async () => {
     await sqlite.runAsync(
@@ -484,14 +497,15 @@ export async function duplicateSession(
       if (!options.includeBought && row.state === 'bought') continue;
       await sqlite.runAsync(
         `INSERT INTO session_item
-          (id, session_id, item_id, planned_qty, planned_unit_id, state, sort_order, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'to_buy', ?, ?, ?)`,
+          (id, session_id, item_id, planned_qty, planned_unit_id, note, state, sort_order, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'to_buy', ?, ?, ?)`,
         [
           uuidv7(),
           newId,
           row.item_id,
           options.copyQty ? row.planned_qty : null,
           options.copyQty ? row.planned_unit_id : null,
+          options.copyQty ? row.note : null,
           row.sort_order,
           now,
           now,
@@ -517,8 +531,8 @@ export async function addItemsToSession(sessionId: string, itemIds: string[]): P
     for (const itemId of itemIds) {
       const result = await sqlite.runAsync(
         `INSERT OR IGNORE INTO session_item
-          (id, session_id, item_id, planned_qty, planned_unit_id, state, sort_order, created_at, updated_at)
-         VALUES (?, ?, ?, NULL, NULL, 'to_buy', ?, ?, ?)`,
+          (id, session_id, item_id, planned_qty, planned_unit_id, note, state, sort_order, created_at, updated_at)
+         VALUES (?, ?, ?, NULL, NULL, NULL, 'to_buy', ?, ?, ?)`,
         [uuidv7(), sessionId, itemId, order, now, now],
       );
       if (result.changes > 0) {
@@ -529,6 +543,130 @@ export async function addItemsToSession(sessionId: string, itemIds: string[]): P
     await sqlite.runAsync('UPDATE session SET updated_at = ? WHERE id = ?', [now, sessionId]);
   });
   return added;
+}
+
+export async function addParsedItemsToSession(
+  sessionId: string,
+  lines: ParsedChecklistLine[],
+): Promise<number> {
+  const merged = mergeParsedLines(lines);
+  if (merged.length === 0) return 0;
+
+  const now = nowIso();
+  const maxRow = await sqlite.getFirstAsync<{ maxOrder: number | null }>(
+    'SELECT MAX(sort_order) AS maxOrder FROM session_item WHERE session_id = ?',
+    [sessionId],
+  );
+  let order = (maxRow?.maxOrder ?? -1) + 1;
+  let touched = 0;
+
+  await sqlite.withTransactionAsync(async () => {
+    for (const line of merged) {
+      let record = await findItemByName(line.name);
+      if (!record) {
+        const id = await createItem({
+          name: line.name,
+          unitKind: line.unitKind,
+        });
+        record = await getItem(id);
+      }
+      if (!record) continue;
+
+      let plannedUnitId: string | null = null;
+      if (line.plannedQty !== null && line.unitKind !== 'none') {
+        plannedUnitId = await ensureDefaultUnit(record.id, line.unitKind);
+      }
+
+      const existing = await sqlite.getFirstAsync<{ id: string }>(
+        'SELECT id FROM session_item WHERE session_id = ? AND item_id = ?',
+        [sessionId, record.id],
+      );
+
+      if (existing) {
+        const sets: string[] = ['updated_at = ?'];
+        const values: unknown[] = [now];
+        if (line.plannedQty !== null) {
+          sets.push('planned_qty = ?', 'planned_unit_id = ?');
+          values.push(line.plannedQty, plannedUnitId);
+        }
+        if (line.note) {
+          sets.push('note = ?');
+          values.push(line.note);
+        }
+        if (sets.length > 1) {
+          values.push(existing.id);
+          await sqlite.runAsync(`UPDATE session_item SET ${sets.join(', ')} WHERE id = ?`, values as never[]);
+          touched += 1;
+        }
+      } else {
+        await sqlite.runAsync(
+          `INSERT INTO session_item
+            (id, session_id, item_id, planned_qty, planned_unit_id, note, state, sort_order, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'to_buy', ?, ?, ?)`,
+          [
+            uuidv7(),
+            sessionId,
+            record.id,
+            line.plannedQty,
+            plannedUnitId,
+            line.note,
+            order,
+            now,
+            now,
+          ],
+        );
+        order += 1;
+        touched += 1;
+      }
+    }
+    await sqlite.runAsync('UPDATE session SET updated_at = ? WHERE id = ?', [now, sessionId]);
+  });
+  return touched;
+}
+
+async function findItemByName(name: string): Promise<ItemRecord | null> {
+  const row = await sqlite.getFirstAsync<{
+    id: string;
+    name: string;
+    category: string;
+    dimension: Dimension;
+    base_unit: BaseUnit | null;
+    display_unit: string | null;
+    notes: string | null;
+    archived_at: string | null;
+  }>(
+    `SELECT id, name, category, dimension, base_unit, display_unit, notes, archived_at
+     FROM item
+     WHERE name = ? COLLATE NOCASE
+     ORDER BY CASE WHEN archived_at IS NULL THEN 0 ELSE 1 END
+     LIMIT 1`,
+    [name],
+  );
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    dimension: row.dimension,
+    baseUnit: row.base_unit,
+    displayUnit: row.display_unit,
+    notes: row.notes,
+    archivedAt: row.archived_at,
+  };
+}
+
+async function ensureDefaultUnit(itemId: string, kind: UnitKind): Promise<string | null> {
+  if (kind === 'none') return null;
+  const spec = UNITS_BY_KIND[kind];
+  const units = await listUnits(itemId);
+  const byLabel = units.find((u) => u.label.toLowerCase() === spec.label.toLowerCase());
+  if (byLabel) return byLabel.id;
+  const record = await getItem(itemId);
+  if (record && unitKindFor(record) === kind) {
+    const fallback = units.find((u) => u.isDefault) ?? units[0];
+    if (fallback) return fallback.id;
+  }
+  return addItemUnit(itemId, { label: spec.label, qtyInBase: spec.qtyInBase });
 }
 
 export async function removeSessionItem(sessionItemId: string): Promise<void> {
@@ -547,6 +685,59 @@ export async function updateSessionItemQty(
     'UPDATE session_item SET planned_qty = ?, planned_unit_id = ?, updated_at = ? WHERE id = ?',
     [plannedQty, plannedUnitId, nowIso(), sessionItemId],
   );
+}
+
+/**
+ * Order writes are serialized. `withExclusiveTransactionAsync` opens a new
+ * connection, so two overlapping reorders would otherwise fight each other.
+ */
+let reorderQueue: Promise<void> = Promise.resolve();
+
+/** Persists the full session-item order after a list drag. */
+export function reorderSessionItems(sessionId: string, orderedIds: string[]): Promise<void> {
+  const write = reorderQueue.then(() => persistSessionOrder(sessionId, orderedIds));
+  // Keep the queue usable after a failed write.
+  reorderQueue = write.catch(() => {});
+  return write;
+}
+
+async function persistSessionOrder(sessionId: string, orderedIds: string[]): Promise<void> {
+  if (orderedIds.length === 0) return;
+  if (new Set(orderedIds).size !== orderedIds.length) throw new Error('Invalid order: duplicate items');
+
+  const stored = await sqlite.getAllAsync<{ id: string; sort_order: number }>(
+    'SELECT id, sort_order FROM session_item WHERE session_id = ?',
+    [sessionId],
+  );
+  const storedOrder = new Map(stored.map((row) => [row.id, row.sort_order]));
+  if (storedOrder.size !== orderedIds.length || orderedIds.some((id) => !storedOrder.has(id))) {
+    throw new Error('Session order is out of date');
+  }
+
+  // Only touched rows get a new timestamp, so untouched rows stay "unchanged"
+  // for sync/merge/undo purposes.
+  const timestamp = nowIso();
+  const pending = orderedIds
+    .map((id, index) => ({ id, index }))
+    .filter(({ id, index }) => storedOrder.get(id) !== index);
+  if (pending.length === 0) return;
+
+  // The exclusive transaction runs on a separate connection, so PRAGMA
+  // foreign_keys is not applied there. This update only changes session_item
+  // sort_order/updated_at, so no foreign-key enforcement is required.
+  await sqlite.withExclusiveTransactionAsync(async (txn) => {
+    const statement = await txn.prepareAsync(
+      'UPDATE session_item SET sort_order = ?, updated_at = ? WHERE id = ? AND session_id = ?',
+    );
+    try {
+      for (const { id, index } of pending) {
+        const result = await statement.executeAsync([index, timestamp, id, sessionId]);
+        if (result.changes !== 1) throw new Error(`Could not reorder item ${id}`);
+      }
+    } finally {
+      await statement.finalizeAsync();
+    }
+  });
 }
 
 export async function setSessionItemState(sessionItemId: string, state: SessionItemState): Promise<void> {
@@ -613,6 +804,7 @@ const BACKUP_TABLES: Record<string, string[]> = {
     'item_id',
     'planned_qty',
     'planned_unit_id',
+    'note',
     'state',
     'sort_order',
     'created_at',
@@ -686,6 +878,7 @@ export async function listSessionItems(sessionId: string): Promise<SessionItemVi
     item_id: string;
     planned_qty: number | null;
     planned_unit_id: string | null;
+    note: string | null;
     state: SessionItemState;
     name: string;
     category: string;
@@ -695,7 +888,7 @@ export async function listSessionItems(sessionId: string): Promise<SessionItemVi
     planned_unit_label: string | null;
     planned_unit_qty: number | null;
   }>(
-    `SELECT si.id, si.item_id, si.planned_qty, si.planned_unit_id, si.state,
+    `SELECT si.id, si.item_id, si.planned_qty, si.planned_unit_id, si.note, si.state,
             i.name, i.category, i.dimension, i.base_unit, i.display_unit,
             u.label AS planned_unit_label, u.qty_in_base AS planned_unit_qty
      FROM session_item si
@@ -762,6 +955,7 @@ export async function listSessionItems(sessionId: string): Promise<SessionItemVi
       plannedUnitId: row.planned_unit_id,
       plannedUnitLabel: row.planned_unit_label,
       plannedUnitQty: row.planned_unit_qty,
+      note: row.note,
       dimension: row.dimension,
       baseUnit: row.base_unit,
       displayUnit: row.display_unit,

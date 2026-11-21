@@ -15,12 +15,14 @@ export function SessionItemRow({
   onComplete,
   onSkip,
   swipeable = true,
+  dragHandle,
 }: {
   view: SessionItemView;
   onPress: () => void;
   onComplete?: () => void;
   onSkip?: () => void;
   swipeable?: boolean;
+  dragHandle?: React.ReactNode;
 }) {
   const { entry, previous, baseUnit } = view;
   const lastLabel = unitPriceLabel(previous, baseUnit);
@@ -29,74 +31,87 @@ export function SessionItemRow({
   const skipped = view.state === 'skipped';
 
   return (
-    <SwipeRow
-      disabled={!swipeable || skipped}
-      onSwipeRight={onComplete ?? onPress}
-      onSwipeLeft={onSkip}
-      rightLabel="Bought"
-    >
-      <Pressable onPress={onPress} style={styles.row}>
-        <View style={[styles.inner, skipped && { opacity: 0.55 }]}>
-          <View style={styles.main}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Text style={[text.h3, bought && { color: colors.text }]} numberOfLines={1}>
-              {view.name}
-            </Text>
-            {skipped ? (
-              <View style={styles.skippedPill}>
-                <Text style={{ fontSize: 10, fontWeight: '800', color: colors.amber }}>SKIPPED</Text>
-              </View>
-            ) : null}
-            {bought ? (
-              <View style={styles.boughtPill}>
-                <Text style={{ fontSize: 10, fontWeight: '800', color: colors.green }}>BOUGHT</Text>
-              </View>
-            ) : null}
-          </View>
+    <View style={styles.rowWrap}>
+      <View style={styles.rowBody}>
+        <SwipeRow
+          disabled={!swipeable || skipped}
+          onSwipeRight={onComplete ?? onPress}
+          onSwipeLeft={onSkip}
+          rightLabel="Bought"
+        >
+          <Pressable onPress={onPress} style={styles.row}>
+            <View style={[styles.inner, skipped && { opacity: 0.55 }]}>
+              <View style={styles.main}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={[text.h3, bought && { color: colors.text }]} numberOfLines={1}>
+                    {view.name}
+                  </Text>
+                  {skipped ? (
+                    <View style={styles.skippedPill}>
+                      <Text style={{ fontSize: 10, fontWeight: '800', color: colors.amber }}>SKIPPED</Text>
+                    </View>
+                  ) : null}
+                  {bought ? (
+                    <View style={styles.boughtPill}>
+                      <Text style={{ fontSize: 10, fontWeight: '800', color: colors.green }}>BOUGHT</Text>
+                    </View>
+                  ) : null}
+                </View>
 
-          {bought && entry ? (
-            <View style={{ gap: 3, marginTop: 3 }}>
-              <Text style={[text.small, { color: colors.text }]}>
-                {formatMoney(entry.totalCentavos)}
-                {quantityLabel(entry, baseUnit) ? `  ·  ${quantityLabel(entry, baseUnit)}` : ''}
-                {paidUnit ? `  ·  ${paidUnit}` : ''}
-              </Text>
-              <PriceBadge comparison={view.comparison} compact />
-            </View>
-          ) : (
-            <View style={{ gap: 2, marginTop: 3 }}>
-              <Text style={[text.small, { fontSize: 12 }]} numberOfLines={1}>
-                {formatPlanned(view) ? `${formatPlanned(view)}  ·  ` : ''}
-                {lastLabel ? `last ${lastLabel}` : 'no price history yet'}
-              </Text>
-              {view.lowestPerBase !== null && baseUnit ? (
-                <Text style={[text.small, { fontSize: 11, color: colors.faint }]}>
-                  lowest {unitPriceLabelLowest(view)}
-                  {view.lowestVerified ? '' : ' (unverified)'}
-                </Text>
-              ) : null}
-            </View>
-          )}
-        </View>
+                {bought && entry ? (
+                  <View style={{ gap: 3, marginTop: 3 }}>
+                    <Text style={[text.small, { color: colors.text }]}>
+                      {formatMoney(entry.totalCentavos)}
+                      {quantityLabel(entry, baseUnit) ? `  ·  ${quantityLabel(entry, baseUnit)}` : ''}
+                      {paidUnit ? `  ·  ${paidUnit}` : ''}
+                    </Text>
+                    <PriceBadge comparison={view.comparison} compact />
+                  </View>
+                ) : (
+                  <View style={{ gap: 2, marginTop: 3 }}>
+                    <Text style={[text.small, { fontSize: 12 }]} numberOfLines={1}>
+                      {formatPlanned(view) ? `${formatPlanned(view)}  ·  ` : ''}
+                      {lastLabel ? `last ${lastLabel}` : 'no price history yet'}
+                    </Text>
+                    {view.lowestPerBase !== null && baseUnit ? (
+                      <Text style={[text.small, { fontSize: 11, color: colors.faint }]}>
+                        lowest {unitPriceLabelLowest(view)}
+                        {view.lowestVerified ? '' : ' (unverified)'}
+                      </Text>
+                    ) : null}
+                  </View>
+                )}
+              </View>
 
-        <View style={{ alignItems: 'flex-end', gap: 4 }}>
-          {bought && entry ? (
-            <Text style={styles.amount}>{formatMoney(entry.totalCentavos)}</Text>
-          ) : (
-            <Text style={styles.chevron}>›</Text>
-          )}
-        </View>
-        </View>
-      </Pressable>
-    </SwipeRow>
+              <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                {bought && entry ? (
+                  <Text style={styles.amount}>{formatMoney(entry.totalCentavos)}</Text>
+                ) : (
+                  <Text style={styles.chevron}>›</Text>
+                )}
+              </View>
+            </View>
+          </Pressable>
+        </SwipeRow>
+      </View>
+      {dragHandle}
+    </View>
   );
 }
 
 function formatPlanned(view: SessionItemView): string | null {
+  const qtyLabel = formatPlannedQty(view);
+  const note = view.note?.trim() || null;
+  if (qtyLabel && note) return `${qtyLabel}  ·  ${note}`;
+  return qtyLabel ?? note;
+}
+
+function formatPlannedQty(view: SessionItemView): string | null {
   if (view.plannedQty === null || view.plannedQty <= 0) return null;
   if (view.baseUnit) {
     const qty = view.plannedQty;
     if (view.baseUnit === 'g' && qty >= 1000) return `${Math.round((qty / 1000) * 100) / 100} kg`;
+    if (view.baseUnit === 'mL' && qty >= 1000) return `${Math.round((qty / 1000) * 100) / 100} L`;
     return `${qty} ${view.baseUnit}`;
   }
   return view.plannedUnitLabel ? `${view.plannedQty} ${view.plannedUnitLabel}` : `${view.plannedQty}`;
@@ -108,6 +123,8 @@ function unitPriceLabelLowest(view: SessionItemView): string {
 }
 
 const styles = StyleSheet.create({
+  rowWrap: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  rowBody: { flex: 1 },
   row: {
     backgroundColor: colors.surface,
     borderWidth: 1,

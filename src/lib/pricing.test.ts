@@ -129,10 +129,10 @@ describe('comparePrice', () => {
 
 describe('formatting', () => {
   it('shows prices per human unit', () => {
-    expect(formatPerBase(10, 'g')).toBe('₱100/kg');
+    expect(formatPerBase(10, 'g')).toBe('₱100.00/kg');
     expect(formatPerBase(0.15, 'g')).toBe('₱1.50/kg');
-    expect(formatPerBase(0.5, 'g')).toBe('₱5/kg');
-    expect(formatPerBase(2500, 'pc')).toBe('₱25/pc');
+    expect(formatPerBase(0.5, 'g')).toBe('₱5.00/kg');
+    expect(formatPerBase(2500, 'pc')).toBe('₱25.00/pc');
   });
   it('formats weights', () => {
     expect(formatWeight(500, 'g')).toBe('500 g');

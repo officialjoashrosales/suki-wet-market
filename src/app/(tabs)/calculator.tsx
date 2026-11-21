@@ -121,7 +121,7 @@ export default function CalculatorScreen() {
             />
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
               {['20', '50', '100', '200'].map((amount) => (
-                <Chip key={amount} label={`₱${amount}`} active={spend === amount} onPress={() => setSpend(amount)} />
+                <Chip key={amount} label={formatMoney(Number(amount) * 100)} active={spend === amount} onPress={() => setSpend(amount)} />
               ))}
             </View>
           </Card>

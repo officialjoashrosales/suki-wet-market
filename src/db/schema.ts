@@ -75,6 +75,8 @@ export const sessionItem = sqliteTable(
       .references(() => item.id, { onDelete: 'restrict' }),
     plannedQty: integer('planned_qty'),
     plannedUnitId: text('planned_unit_id'),
+    /** Short checklist note, e.g. "₱20.00 worth". Not money. */
+    note: text('note'),
     /** to_buy | bought | skipped */
     state: text('state').notNull().default('to_buy'),
     sortOrder: integer('sort_order').notNull().default(0),

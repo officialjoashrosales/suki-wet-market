@@ -53,14 +53,9 @@ export function formatMoney(centavos: number): string {
   return `${negative ? '-' : ''}\u20B1${groupDigits(pesos)}.${String(cents).padStart(2, '0')}`;
 }
 
-/** Drops ".00" for tight spaces. */
+/** Peso values always use 2 decimals; kept as an alias for existing call sites. */
 export function formatMoneyCompact(centavos: number): string {
-  const negative = centavos < 0;
-  const abs = Math.abs(Math.round(centavos));
-  const pesos = Math.floor(abs / 100);
-  const cents = abs % 100;
-  const base = `${negative ? '-' : ''}\u20B1${groupDigits(pesos)}`;
-  return cents === 0 ? base : `${base}.${String(cents).padStart(2, '0')}`;
+  return formatMoney(centavos);
 }
 
 function groupDigits(value: number): string {
